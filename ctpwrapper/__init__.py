@@ -19,6 +19,7 @@ along with ctpwrapper.  If not, see <http://www.gnu.org/licenses/>.
 __version__ = "6.7.1"
 
 from ctpwrapper.Md import MdApiPy
+from ctpwrapper.Md import AsyncMdApiPy
 from ctpwrapper.Trader import TraderApiPy
 
 from ctpwrapper.datacollect import GetSystemInfo, GetDataCollectApiVersion
@@ -26,6 +27,7 @@ from ctpwrapper.datacollect import GetSystemInfo, GetDataCollectApiVersion
 
 __all__ = (
     "MdApiPy",
+    "AsyncMdApiPy",
     "TraderApiPy",
     "GetSystemInfo",
     "GetDataCollectApiVersion"

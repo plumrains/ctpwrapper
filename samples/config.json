@@ -1,7 +1,7 @@
 {
-  "investor_id": "",
-  "broker_id": "",
-  "password": "",
+  "investor_id": "216375",
+  "broker_id": "9999",
+  "password": "Alpha1qaz!",
   "md_server": "tcp://180.168.146.187:10110",
   "trader_server": "tcp://180.168.146.187:10100",
   "app_id": "simnow_client_test",

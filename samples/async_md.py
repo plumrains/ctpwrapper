@@ -7,7 +7,8 @@ import urllib.parse
 from contextlib import closing
 import time
 from ctpwrapper import ApiStructure
-from ctpwrapper import MdApiPy
+from ctpwrapper import AsyncMdApiPy
+import asyncio
 
 
 def check_address_port(tcp):
@@ -27,7 +28,7 @@ def check_address_port(tcp):
             return False  # closed
 
 
-class Md(MdApiPy):
+class AsyncMd(AsyncMdApiPy):
     """
     """
 
@@ -45,30 +46,30 @@ class Md(MdApiPy):
         self._request_id += 1
         return self._request_id
 
-    def OnRspError(self, pRspInfo, nRequestID, bIsLast):
+    async def OnRspError(self, pRspInfo, nRequestID, bIsLast):
         print("OnRspError:")
         print("requestID:", nRequestID)
         print(pRspInfo)
         print(bIsLast)
 
-    def OnFrontConnected(self):
+    async def OnFrontConnected(self):
         """
         :return:
         """
         user_login = ApiStructure.ReqUserLoginField(BrokerID=self.broker_id, UserID=self.investor_id, Password=self.password)
         self.ReqUserLogin(user_login, self.request_id)
 
-    def OnFrontDisconnected(self, nReason):
+    async def OnFrontDisconnected(self, nReason):
         print("Md OnFrontDisconnected {0}".format(nReason))
         sys.exit()
 
-    def OnHeartBeatWarning(self, nTimeLapse):
+    async def OnHeartBeatWarning(self, nTimeLapse):
         """心跳超时警告。当长时间未收到报文时，该方法被调用。
         @param nTimeLapse 距离上次接收报文的时间
         """
         print('Md OnHeartBeatWarning, time = {0}'.format(nTimeLapse))
 
-    def OnRspUserLogin(self, pRspUserLogin, pRspInfo, nRequestID, bIsLast):
+    async def OnRspUserLogin(self, pRspUserLogin, pRspInfo, nRequestID, bIsLast):
         """
         用户登录应答
         :param pRspUserLogin:
@@ -80,15 +81,16 @@ class Md(MdApiPy):
         print("OnRspUserLogin")
         print("requestID:", nRequestID)
         print("RspInfo:", pRspInfo)
+        if self.async_wrapper:
+            self.async_wrapper.on_rsp_user_login(pRspUserLogin, pRspInfo, nRequestID, bIsLast)
+        # if pRspInfo.ErrorID != 0:
+        #     print("RspInfo:", pRspInfo)
+        # else:
+        #     print("user login successfully")
+        #     print("RspUserLogin:", pRspUserLogin)
+        #     self.login = True
 
-        if pRspInfo.ErrorID != 0:
-            print("RspInfo:", pRspInfo)
-        else:
-            print("user login successfully")
-            print("RspUserLogin:", pRspUserLogin)
-            self.login = True
-
-    def OnRtnDepthMarketData(self, pDepthMarketData):
+    async def OnRtnDepthMarketData(self, pDepthMarketData):
         """
         行情订阅推送信息
         :param pDepthMarketData:
@@ -96,8 +98,10 @@ class Md(MdApiPy):
         """
         print("OnRtnDepthMarketData")
         print("DepthMarketData:", pDepthMarketData)
+        if self.async_wrapper:
+            self.async_wrapper.on_rtn_depth_market_data(pDepthMarketData)
 
-    def OnRspSubMarketData(self, pSpecificInstrument, pRspInfo, nRequestID, bIsLast):
+    async def OnRspSubMarketData(self, pSpecificInstrument, pRspInfo, nRequestID, bIsLast):
         """
         订阅行情应答
         :param pSpecificInstrument:
@@ -112,7 +116,7 @@ class Md(MdApiPy):
         print("pRspInfo:", pRspInfo)
         print("pSpecificInstrument:", pSpecificInstrument)
 
-    def OnRspUnSubMarketData(self, pSpecificInstrument, pRspInfo, nRequestID, bIsLast):
+    async def OnRspUnSubMarketData(self, pSpecificInstrument, pRspInfo, nRequestID, bIsLast):
         """
         取消订阅行情应答
         :param pSpecificInstrument:
@@ -127,8 +131,7 @@ class Md(MdApiPy):
         print("pRspInfo:", pRspInfo)
         print("pSpecificInstrument:", pSpecificInstrument)
 
-
-def main():
+async def main():
     json_file = open("config.json")
     config = json.load(json_file)
     json_file.close()
@@ -137,29 +140,18 @@ def main():
     broker_id = config["broker_id"]
     password = config["password"]
     server = config["md_server"]
-
     if check_address_port(server):
-        print("connect to md sever successfully")
-        # 1 create
-        # 2 register
-        # 3 register front
-        # 4 init
-        md = Md(broker_id, investor_id, password)
-        md.Create()
-        md.RegisterFront(server)
-        md.Init()
+        async_md = AsyncMd(broker_id, investor_id, password)
+        async_md.Create()
+        async_md.RegisterFront(server)
+        async_md.Init()
 
-        day = md.GetTradingDay()
-        print("trading day:", day)
-        print("md login:", md.login)
-        if md.login:
-            md.SubscribeMarketData(["au2410"])
-            time.sleep(30)
-            md.UnSubscribeMarketData(["au2410"])
-            md.Join()
-    else:
-        print("md server is down")
+        if async_md.login:
+            async_md.SubscribeMarketData(["au2410"])
+            asyncio.sleep(30)
+            async_md.UnSubscribeMarketData(["au2410"])
+            async_md.Join()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
