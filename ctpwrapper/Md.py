@@ -18,7 +18,9 @@ along with ctpwrapper.  If not, see <http://www.gnu.org/licenses/>.
 """
 import time
 import typing
-from typing import Optional
+from typing import Optional, List, Callable, Any
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from ctpwrapper.ApiStructure import (FensUserInfoField, UserLogoutField,
                                      ReqUserLoginField, QryMulticastInstrumentField)
@@ -87,8 +89,8 @@ class MdApiPy(MdApiWrapper):
         """
         注册前置机网络地址
         @param pszFrontAddress：前置机网络地址。
-        @remark 网络地址的格式为：“protocol:# ipaddress:port”，如：”tcp:# 127.0.0.1:17001”。
-        @remark “tcp”代表传输协议，“127.0.0.1”代表服务器地址。”17001”代表服务器端口号。
+        @remark 网络地址的格式为："protocol:# ipaddress:port"，如："tcp:# 127.0.0.1:17001"。
+        @remark "tcp"代表传输协议，"127.0.0.1"代表服务器地址。"17001"代表服务器端口号。
         """
         super(MdApiPy, self).RegisterFront(pszFrontAddress.encode())
 
@@ -96,8 +98,8 @@ class MdApiPy(MdApiWrapper):
         """
         注册名字服务器网络地址
         @param pszNsAddress：名字服务器网络地址。
-        @remark 网络地址的格式为：“protocol:# ipaddress:port”，如：”tcp:# 127.0.0.1:12001”。
-        @remark “tcp”代表传输协议，“127.0.0.1”代表服务器地址。”12001”代表服务器端口号。
+        @remark 网络地址的格式为："protocol:# ipaddress:port"，如："tcp:# 127.0.0.1:12001"。
+        @remark "tcp"代表传输协议，"127.0.0.1"代表服务器地址。"12001"代表服务器端口号。
         @remark RegisterNameServer优先于RegisterFront
         """
         super(MdApiPy, self).RegisterNameServer(pszNsAddress.encode())
@@ -286,3 +288,93 @@ class MdApiPy(MdApiWrapper):
         :return:
         """
         pass
+
+
+class AsyncMdApi(MdApiPy):
+    def __init__(self):
+        super().__init__()
+        self._loop = asyncio.get_event_loop()
+        self._executor = ThreadPoolExecutor(max_workers=4)
+        self._callbacks = {}
+        self._connected = asyncio.Event()
+        self._login_event = asyncio.Event()
+        
+    async def create(self, pszFlowPath: Optional[str] = "", 
+                    bIsUsingUdp: Optional[bool] = False,
+                    bIsMulticast: Optional[bool] = False) -> None:
+        """异步创建MdApi"""
+        await self._loop.run_in_executor(
+            self._executor,
+            self.Create,
+            pszFlowPath,
+            bIsUsingUdp,
+            bIsMulticast
+        )
+        
+    async def init(self) -> None:
+        """异步初始化"""
+        await self._loop.run_in_executor(self._executor, self.Init)
+        
+    async def register_front(self, front_address: str) -> None:
+        """异步注册前置机"""
+        await self._loop.run_in_executor(
+            self._executor,
+            self.RegisterFront,
+            front_address
+        )
+        
+    async def login(self, req: ReqUserLoginField) -> None:
+        """异步登录"""
+        await self._loop.run_in_executor(
+            self._executor,
+            self.ReqUserLogin,
+            req,
+            0
+        )
+        await self._login_event.wait()
+        
+    async def subscribe_market_data(self, instruments: List[str]) -> None:
+        """异步订阅行情"""
+        await self._loop.run_in_executor(
+            self._executor,
+            self.SubscribeMarketData,
+            instruments
+        )
+        
+    def register_callback(self, event: str, callback: Callable) -> None:
+        """注册异步回调函数"""
+        self._callbacks[event] = callback
+        
+    def OnFrontConnected(self) -> None:
+        """连接成功回调"""
+        self._connected.set()
+        if 'connected' in self._callbacks:
+            self._loop.call_soon_threadsafe(
+                self._callbacks['connected']
+            )
+            
+    def OnRspUserLogin(self, pRspUserLogin, pRspInfo, nRequestID, bIsLast) -> None:
+        """登录响应回调"""
+        if pRspInfo.ErrorID == 0:
+            self._login_event.set()
+        if 'login' in self._callbacks:
+            self._loop.call_soon_threadsafe(
+                self._callbacks['login'],
+                pRspUserLogin,
+                pRspInfo, 
+                nRequestID,
+                bIsLast
+            )
+            
+    def OnRtnDepthMarketData(self, pDepthMarketData) -> None:
+        """行情数据回调"""
+        if 'market_data' in self._callbacks:
+            self._loop.call_soon_threadsafe(
+                self._callbacks['market_data'],
+                pDepthMarketData
+            )
+            
+    async def close(self) -> None:
+        """关闭连接"""
+        self._executor.shutdown()
+        await self._loop.run_in_executor(self._executor, self.Release)
